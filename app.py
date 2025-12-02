@@ -203,7 +203,7 @@ if selected_filename:
                     fig_inv = px.bar(
                         graph_data, 
                         x='LabContact', 
-                        y='Cage Count',
+                        y='Cage Count', 
                         color='Location', 
                         text_auto=True,
                         title="",
@@ -232,7 +232,14 @@ if selected_filename:
                         xaxis_title="Investigator", 
                         yaxis_title="", # Hide y-axis title to avoid duplication
                         margin=dict(t=20),
-                        annotations=annotations
+                        annotations=annotations,
+                        legend=dict(
+                            orientation="h",
+                            yanchor="top",
+                            y=-0.2,
+                            xanchor="center",
+                            x=0.5
+                        )
                     )
                     
                     st.plotly_chart(fig_inv, use_container_width=True)
