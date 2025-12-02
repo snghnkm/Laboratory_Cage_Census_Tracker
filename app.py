@@ -139,66 +139,103 @@ if selected_filename:
                 upload_time = datetime.fromtimestamp(file_stats.st_mtime).strftime('%Y-%m-%d %H:%M')
                 st.caption(f"Showing data for: **{selected_filename}** (Uploaded: {upload_time})")
                 
-                # --- Analysis 1: Graph (Moved to Top) ---
+                # --- Analysis 1: Graphs (Moved to Top) ---
                 st.divider()
-                st.subheader("1. 📉 Usage by Investigator")
+                st.subheader("1. 📉 Census Visualization")
                 
                 # 1. Prepare Base Data (Per Person)
                 graph_data = df.groupby(['LabContact', 'Room', 'Rack']).size().reset_index(name='Cage Count')
+                graph_data['Location'] = graph_data['Room'] + " - " + graph_data['Rack']
                 
-                # 2. Prepare Grand Total Data (Sum of everyone)
+                # 2. Prepare Grand Total Data
                 grand_total_data = df.groupby(['Room', 'Rack']).size().reset_index(name='Cage Count')
-                grand_total_data['LabContact'] = "🔴 GRAND TOTAL" # Use a distinct name
-                
-                # 3. Combine them
-                full_graph_data = pd.concat([graph_data, grand_total_data], ignore_index=True)
-                
-                # 4. Create Location Column for Stacking
-                full_graph_data['Location'] = full_graph_data['Room'] + " - " + full_graph_data['Rack']
-                
-                # 5. Calculate Totals for Sorting
-                contact_totals = full_graph_data.groupby('LabContact')['Cage Count'].sum().sort_values(ascending=False)
-                
-                # Ensure Grand Total is first, then the rest sorted by size
-                sorted_contacts = contact_totals.drop("🔴 GRAND TOTAL").index.tolist()
-                x_order = ["🔴 GRAND TOTAL"] + sorted_contacts
+                grand_total_data['LabContact'] = "Total" # Shortened name
+                grand_total_data['Location'] = grand_total_data['Room'] + " - " + grand_total_data['Rack']
 
-                fig = px.bar(
-                    full_graph_data, 
-                    x='LabContact', 
-                    y='Cage Count',
-                    color='Location', 
-                    text_auto=True,
-                    title=f"Total Cages per Lab Contact (Including Grand Total)",
-                    height=600,
-                    category_orders={'LabContact': x_order}
-                )
+                # --- Graph Layout: 1 column vs 4 columns ratio ---
+                col1, col2 = st.columns([1, 4])
                 
-                # Floating Annotations for Totals
-                totals_df = contact_totals.reset_index()
-                annotations = []
-                for index, row in totals_df.iterrows():
-                    annotations.append(dict(
-                        x=row['LabContact'],
-                        y=row['Cage Count'],
-                        text=f"<b>{row['Cage Count']}</b>",
-                        xanchor='center',
-                        yanchor='bottom',
+                with col1:
+                    st.markdown("### 🔹 Total")
+                    total_sum = grand_total_data['Cage Count'].sum()
+                    
+                    fig_total = px.bar(
+                        grand_total_data, 
+                        x='LabContact', 
+                        y='Cage Count', 
+                        color='Location',
+                        text_auto=True,
+                        title="", # Removed title to save space
+                        height=500
+                    )
+                    
+                    # Make the single bar narrower explicitly
+                    fig_total.update_traces(width=0.6)
+                    
+                    # Annotation for Grand Total
+                    fig_total.add_annotation(
+                        x="Total",
+                        y=total_sum,
+                        text=f"<b>{total_sum}</b>",
                         showarrow=False,
-                        yshift=8,
+                        yshift=10,
                         bgcolor="rgba(220, 220, 220, 0.7)",
                         borderpad=3,
-                        font=dict(size=14, color="black")
-                    ))
+                        font=dict(size=16, color="black")
+                    )
+                    
+                    fig_total.update_layout(
+                        xaxis_title="", 
+                        yaxis_title="Cages",
+                        margin=dict(t=20, l=10, r=10),
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)
 
-                fig.update_layout(
-                    xaxis_title="Investigator", 
-                    yaxis_title="Number of Cages",
-                    margin=dict(t=60),
-                    annotations=annotations
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
+                # --- Graph B: By Investigator ---
+                with col2:
+                    st.markdown("### 🔹 Usage by Investigator")
+                    
+                    # Sort by total count per contact
+                    contact_totals = graph_data.groupby('LabContact')['Cage Count'].sum().sort_values(ascending=False)
+                    x_order = contact_totals.index.tolist()
+
+                    fig_inv = px.bar(
+                        graph_data, 
+                        x='LabContact', 
+                        y='Cage Count',
+                        color='Location', 
+                        text_auto=True,
+                        title="",
+                        height=500,
+                        category_orders={'LabContact': x_order}
+                    )
+                    
+                    # Floating Annotations for Investigators
+                    totals_df = contact_totals.reset_index()
+                    annotations = []
+                    for index, row in totals_df.iterrows():
+                        annotations.append(dict(
+                            x=row['LabContact'],
+                            y=row['Cage Count'],
+                            text=f"<b>{row['Cage Count']}</b>",
+                            xanchor='center',
+                            yanchor='bottom',
+                            showarrow=False,
+                            yshift=8,
+                            bgcolor="rgba(220, 220, 220, 0.7)",
+                            borderpad=3,
+                            font=dict(size=14, color="black")
+                        ))
+
+                    fig_inv.update_layout(
+                        xaxis_title="Investigator", 
+                        yaxis_title="", # Hide y-axis title to avoid duplication
+                        margin=dict(t=20),
+                        annotations=annotations
+                    )
+                    
+                    st.plotly_chart(fig_inv, use_container_width=True)
 
                 # --- Analysis 2: Pivot Tables (Separated by Room) ---
                 st.divider()
