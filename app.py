@@ -188,7 +188,8 @@ if selected_filename:
                         xaxis_title="", 
                         yaxis_title="Cages",
                         margin=dict(t=20, l=10, r=10),
-                        showlegend=False
+                        showlegend=False,
+                        dragmode=False # Disables zoom/pan
                     )
                     st.plotly_chart(fig_total, use_container_width=True)
 
@@ -232,6 +233,7 @@ if selected_filename:
                         xaxis_title="Investigator", 
                         yaxis_title="", # Hide y-axis title to avoid duplication
                         margin=dict(t=20),
+                        dragmode=False, # Disables zoom/pan
                         annotations=annotations,
                         legend=dict(
                             orientation="h",
