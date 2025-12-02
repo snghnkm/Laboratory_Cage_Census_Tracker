@@ -114,7 +114,6 @@ if selected_filename:
     df = None
     if selected_filename.endswith('.enc'):
         st.warning(f"🔒 {selected_filename} is encrypted.")
-        # Changed from type="password" to standard text input to avoid IT filters
         password_input = st.text_input("Enter decryption password:", key="decryption_password")
         
         if password_input:
@@ -144,21 +143,33 @@ if selected_filename:
                 st.divider()
                 st.subheader("1. 📉 Usage by Investigator")
                 
-                # Prepare data for graph
+                # 1. Prepare Base Data (Per Person)
                 graph_data = df.groupby(['LabContact', 'Room', 'Rack']).size().reset_index(name='Cage Count')
-                graph_data['Location'] = graph_data['Room'] + " - " + graph_data['Rack']
                 
-                # Sort by total count
-                contact_totals = graph_data.groupby('LabContact')['Cage Count'].sum().sort_values(ascending=False)
-                x_order = contact_totals.index.tolist()
+                # 2. Prepare Grand Total Data (Sum of everyone)
+                grand_total_data = df.groupby(['Room', 'Rack']).size().reset_index(name='Cage Count')
+                grand_total_data['LabContact'] = "🔴 GRAND TOTAL" # Use a distinct name
+                
+                # 3. Combine them
+                full_graph_data = pd.concat([graph_data, grand_total_data], ignore_index=True)
+                
+                # 4. Create Location Column for Stacking
+                full_graph_data['Location'] = full_graph_data['Room'] + " - " + full_graph_data['Rack']
+                
+                # 5. Calculate Totals for Sorting
+                contact_totals = full_graph_data.groupby('LabContact')['Cage Count'].sum().sort_values(ascending=False)
+                
+                # Ensure Grand Total is first, then the rest sorted by size
+                sorted_contacts = contact_totals.drop("🔴 GRAND TOTAL").index.tolist()
+                x_order = ["🔴 GRAND TOTAL"] + sorted_contacts
 
                 fig = px.bar(
-                    graph_data, 
+                    full_graph_data, 
                     x='LabContact', 
                     y='Cage Count',
                     color='Location', 
                     text_auto=True,
-                    title=f"Total Cages per Lab Contact",
+                    title=f"Total Cages per Lab Contact (Including Grand Total)",
                     height=600,
                     category_orders={'LabContact': x_order}
                 )
