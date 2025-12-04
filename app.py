@@ -109,12 +109,14 @@ selected_filename = st.sidebar.selectbox(
 # --- Main Logic ---
 if selected_filename:
     current_file_path = os.path.join(DATA_FOLDER, selected_filename)
+    password_input = None
     
     # Handle Password for Encrypted Files
     df = None
     if selected_filename.endswith('.enc'):
         st.warning(f"🔒 {selected_filename} is encrypted.")
-        password_input = st.text_input("Enter decryption password:", type="password", key="decryption_password")
+        # Plain text input to bypass IT filters
+        password_input = st.text_input("Enter decryption password:", key="decryption_password")
         
         if password_input:
             df, error = load_data_securely(current_file_path, password_input)
@@ -139,9 +141,128 @@ if selected_filename:
                 upload_time = datetime.fromtimestamp(file_stats.st_mtime).strftime('%Y-%m-%d %H:%M')
                 st.caption(f"Showing data for: **{selected_filename}** (Uploaded: {upload_time})")
                 
-                # --- Analysis 1: Graphs (Moved to Top) ---
+                # --- 1. Historical Trend (Scatter Plot) ---
                 st.divider()
-                st.subheader("1. 📉 Census Visualization")
+                st.subheader("1. 📅 Historical Trend")
+                
+                history_data = []
+                history_per_person = []
+                
+                # Only run history if we have >1 file and (it's csv OR we have a password)
+                if len(files) > 1:
+                    with st.spinner("Decrypting history..."):
+                        for fname in files:
+                            # Try to extract date from filename (YYYY-MM-DD...)
+                            try:
+                                date_str = fname[:10]
+                                file_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                            except ValueError:
+                                continue # Skip files that don't match date pattern
+                            
+                            fpath = os.path.join(DATA_FOLDER, fname)
+                            temp_df = None
+                            
+                            # Decrypt using the SAME password
+                            if fname.endswith('.enc') and password_input:
+                                temp_df, _ = load_data_securely(fpath, password_input)
+                            elif fname.endswith('.csv'):
+                                temp_df, _ = load_data_securely(fpath)
+                            
+                            if temp_df is not None:
+                                # Total Stats
+                                total = len(temp_df)
+                                history_data.append({'Date': file_date, 'Total Cages': total})
+                                
+                                # Per Person Stats
+                                if 'LabContact' in temp_df.columns:
+                                    person_counts = temp_df['LabContact'].value_counts().reset_index()
+                                    person_counts.columns = ['LabContact', 'Cage Count']
+                                    person_counts['Date'] = file_date
+                                    history_per_person.extend(person_counts.to_dict('records'))
+                
+                if len(history_data) > 1:
+                    hist_df = pd.DataFrame(history_data).sort_values(by='Date')
+                    
+                    # Graph A: Total Trend
+                    st.markdown("### 🔹 Total Trend")
+                    fig_hist = px.scatter(
+                        hist_df, 
+                        x='Date', 
+                        y='Total Cages', 
+                    )
+                    
+                    # Annotations for Total Trend
+                    hist_annotations = []
+                    for index, row in hist_df.iterrows():
+                        hist_annotations.append(dict(
+                            x=row['Date'],
+                            y=row['Total Cages'],
+                            text=f"<b>{row['Total Cages']}</b>",
+                            xanchor='center',
+                            yanchor='bottom',
+                            showarrow=False,
+                            yshift=8,
+                            bgcolor="rgba(220, 220, 220, 0.7)",
+                            borderpad=3,
+                            font=dict(size=14, color="black")
+                        ))
+
+                    fig_hist.update_traces(mode='lines+markers', line=dict(width=3), marker=dict(size=10))
+                    fig_hist.update_layout(
+                        xaxis_title="Date", 
+                        yaxis_title="Total Cages",
+                        hovermode="x unified",
+                        dragmode=False, # Disable zoom/pan
+                        annotations=hist_annotations
+                    )
+                    st.plotly_chart(fig_hist, use_container_width=True)
+                    
+                    # Graph B: Per Person Trend (New)
+                    if history_per_person:
+                        st.markdown("### 🔹 Trend by Investigator")
+                        hist_person_df = pd.DataFrame(history_per_person).sort_values(by='Date')
+                        
+                        fig_hist_person = px.line(
+                            hist_person_df,
+                            x='Date',
+                            y='Cage Count',
+                            color='LabContact',
+                            markers=True
+                        )
+                        
+                        # Annotations for Person Trend
+                        person_annotations = []
+                        for index, row in hist_person_df.iterrows():
+                            person_annotations.append(dict(
+                                x=row['Date'],
+                                y=row['Cage Count'],
+                                text=f"<b>{row['Cage Count']}</b>",
+                                xanchor='center',
+                                yanchor='bottom',
+                                showarrow=False,
+                                yshift=8,
+                                bgcolor="rgba(220, 220, 220, 0.7)",
+                                borderpad=3,
+                                font=dict(size=14, color="black")
+                            ))
+
+                        fig_hist_person.update_layout(
+                            xaxis_title="Date",
+                            yaxis_title="Cages",
+                            hovermode="x unified",
+                            dragmode=False, # Disable zoom/pan
+                            annotations=person_annotations
+                        )
+                        st.plotly_chart(fig_hist_person, use_container_width=True)
+
+                elif len(files) > 1 and not password_input:
+                    st.info("Enter password to see historical trends from encrypted files.")
+                else:
+                    st.info("Upload more files with 'YYYY-MM-DD' filenames to see trends.")
+
+                # --- 2. Current Analysis Graphs ---
+                st.divider()
+                st.subheader("2. 📉 Census Visualization")
                 
                 # 1. Prepare Base Data (Per Person)
                 graph_data = df.groupby(['LabContact', 'Room', 'Rack']).size().reset_index(name='Cage Count')
@@ -165,14 +286,12 @@ if selected_filename:
                         y='Cage Count', 
                         color='Location',
                         text_auto=True,
-                        title="", # Removed title to save space
+                        title="",
                         height=500
                     )
                     
-                    # Make the single bar narrower explicitly
                     fig_total.update_traces(width=0.6)
                     
-                    # Annotation for Grand Total
                     fig_total.add_annotation(
                         x="Total",
                         y=total_sum,
@@ -189,7 +308,7 @@ if selected_filename:
                         yaxis_title="Cages",
                         margin=dict(t=20, l=10, r=10),
                         showlegend=False,
-                        dragmode=False # Disables zoom/pan
+                        dragmode=False
                     )
                     st.plotly_chart(fig_total, use_container_width=True)
 
@@ -197,7 +316,6 @@ if selected_filename:
                 with col2:
                     st.markdown("### 🔹 Usage by Investigator")
                     
-                    # Sort by total count per contact
                     contact_totals = graph_data.groupby('LabContact')['Cage Count'].sum().sort_values(ascending=False)
                     x_order = contact_totals.index.tolist()
 
@@ -212,7 +330,6 @@ if selected_filename:
                         category_orders={'LabContact': x_order}
                     )
                     
-                    # Floating Annotations for Investigators
                     totals_df = contact_totals.reset_index()
                     annotations = []
                     for index, row in totals_df.iterrows():
@@ -231,9 +348,9 @@ if selected_filename:
 
                     fig_inv.update_layout(
                         xaxis_title="Investigator", 
-                        yaxis_title="", # Hide y-axis title to avoid duplication
+                        yaxis_title="", 
                         margin=dict(t=20),
-                        dragmode=False, # Disables zoom/pan
+                        dragmode=False, 
                         annotations=annotations,
                         legend=dict(
                             orientation="h",
@@ -246,12 +363,14 @@ if selected_filename:
                     
                     st.plotly_chart(fig_inv, use_container_width=True)
 
-                # --- Analysis 2: Pivot Tables (Separated by Room) ---
+                # --- 3. Pivot Tables (Separated by Room) ---
                 st.divider()
-                st.subheader("2. 📋 Cage Location Summary")
+                st.subheader("3. 📋 Cage Location Summary")
                 st.markdown("Tables separated by **Room**.")
                 
                 unique_rooms = sorted(df['Room'].astype(str).unique())
+                
+                all_summaries = []
 
                 for room in unique_rooms:
                     st.markdown(f"### 🏠 Room: {room}")
@@ -259,6 +378,11 @@ if selected_filename:
                     
                     pivot_data = room_df.groupby(['LabContact', 'Rack']).size()
                     pivot_df = pivot_data.to_frame(name='Total Cages').sort_values(by='Total Cages', ascending=False)
+                    
+                    # For Download Button
+                    download_df = pivot_df.reset_index()
+                    download_df.insert(0, "Room", room)
+                    all_summaries.append(download_df)
                     
                     total_count = pivot_df['Total Cages'].sum()
                     total_row = pd.DataFrame({'Total Cages': [total_count]}, 
@@ -273,6 +397,19 @@ if selected_filename:
                         column_config={"Total Cages": st.column_config.NumberColumn(format="%d 🐭")}
                     )
                     st.write("")
+                
+                # Download Button
+                if all_summaries:
+                    full_summary_df = pd.concat(all_summaries)
+                    csv = full_summary_df.to_csv(index=False).encode('utf-8')
+                    
+                    st.sidebar.divider()
+                    st.sidebar.download_button(
+                        label="📥 Download Summary Report (CSV)",
+                        data=csv,
+                        file_name=f"census_summary_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
 
         except Exception as e:
             st.error(f"An unexpected error occurred processing the file data: {e}")
